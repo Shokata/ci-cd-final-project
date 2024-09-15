@@ -1,0 +1,135 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  creationTimestamp: "2024-09-15T17:29:05Z"
+  generation: 6
+  name: ci-cd-pipeline
+  namespace: sn-labs-slucham
+  resourceVersion: "1673770587"
+  uid: 23046569-98d4-4095-93c8-26232bbcbfe9
+spec:
+  finally:
+  - name: git-clone
+    params:
+    - name: url
+      value: https://github.com/ibm-developer-skills-network/wtecc-CICD_PracticeCode
+    - name: revision
+      value: ""
+    - name: refspec
+      value: ""
+    - name: submodules
+      value: "true"
+    - name: depth
+      value: "1"
+    - name: sslVerify
+      value: "true"
+    - name: crtFileName
+      value: ca-bundle.crt
+    - name: subdirectory
+      value: ""
+    - name: sparseCheckoutDirectories
+      value: ""
+    - name: deleteExisting
+      value: "true"
+    - name: httpProxy
+      value: ""
+    - name: httpsProxy
+      value: ""
+    - name: noProxy
+      value: ""
+    - name: verbose
+      value: "true"
+    - name: gitInitImage
+      value: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.40.2
+    - name: userHome
+      value: /home/git
+    taskRef:
+      kind: Task
+      name: git-clone
+    workspaces:
+    - name: output
+      workspace: output
+  - name: flake8
+    params:
+    - name: image
+      value: python:3.9-slim
+    - name: path
+      value: .
+    - name: requirements_file
+      value: requirements.txt
+    - name: args
+      value:
+      - --count
+      - --max-complexity=10
+      - --max-line-length=127
+    taskRef:
+      kind: Task
+      name: flake8
+    workspaces:
+    - name: source
+      workspace: output
+  - name: nose
+    params:
+    - name: args
+      value: -v
+    taskRef:
+      kind: Task
+      name: nose
+    workspaces:
+    - name: source
+      workspace: output
+  - name: buildah
+    params:
+    - name: IMAGE
+      value: $(params.build-image)
+    - name: BUILDER_IMAGE
+      value: registry.redhat.io/rhel8/buildah@sha256:ac0b8714cc260c94435cab46fe41b3de0ccbc3d93e38c395fa9d52ac49e521fe
+    - name: STORAGE_DRIVER
+      value: vfs
+    - name: DOCKERFILE
+      value: ./Dockerfile
+    - name: CONTEXT
+      value: .
+    - name: TLSVERIFY
+      value: "true"
+    - name: FORMAT
+      value: oci
+    - name: BUILD_EXTRA_ARGS
+      value: ""
+    - name: PUSH_EXTRA_ARGS
+      value: ""
+    - name: SKIP_PUSH
+      value: "false"
+    taskRef:
+      kind: ClusterTask
+      name: buildah
+    workspaces:
+    - name: source
+      workspace: output
+  - name: deploy
+    params:
+    - name: SCRIPT
+      value: oc create deployment $(params.app-name) --image=$(params.build-image)
+        --dry-run=client -o yaml | oc apply -f -
+    - name: VERSION
+      value: latest
+    taskRef:
+      kind: ClusterTask
+      name: openshift-client
+  params:
+  - default: image-registry.openshift-image-registry.svc:5000/sn-labs-slucham/tekton-lab:latest
+    name: build-image
+    type: string
+  - default: cicd-app
+    name: app-name
+    type: string
+  tasks:
+  - name: cleanup
+    taskRef:
+      kind: Task
+      name: cleanup
+    workspaces:
+    - name: source
+      workspace: output
+  workspaces:
+  - name: output
